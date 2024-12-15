@@ -222,7 +222,7 @@ def error_analysis(file_name, train_file_name):
         # Calculate transition probability multiplied by emission probability
         transition_times_emission_prob = true_to_true_prob * emission_prob
         transition_prob_emission_prob = prev_to_pred_prob * emission_prob
-        
+         
         # Print substitution error with the original and multiplied transition probabilities
         print(f"{prev_tag} -> {true_tag} -> {pred_tag}: {count} errors")
         print(f"  Transition probability from {prev_tag} to {true_tag}: {true_to_true_prob}")
