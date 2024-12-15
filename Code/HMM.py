@@ -208,23 +208,24 @@ def error_analysis(file_name, train_file_name):
         true_to_true_prob = A.get(prev_tag, {}).get(true_tag, 0)
         prev_to_pred_prob = A.get(prev_tag, {}).get(pred_tag, 0)
 
-        # Print the substitution error along with the transition and emission probabilities
+        # Obtain the current token to calculate the emission probability
+        # Ensure that a match exists for the true_tag before accessing token_index
+        matching_indices = [i for i, t in enumerate(pos_tags) if t == true_tag]
+        if matching_indices:
+            token_index = matching_indices[0]
+            emission_prob = b.get(true_tag, {}).get(tokens[token_index], 0)
+        else:
+            # Handle the case where no matching token is found
+            token_index = None
+            emission_prob = 0  # Default emission probability in case of error
+
+        # Calculate transition probability multiplied by emission probability
+        transition_times_emission_prob = true_to_true_prob * emission_prob
+        transition_prob_emission_prob = prev_to_pred_prob * emission_prob
+        
+        # Print substitution error with the original and multiplied transition probabilities
         print(f"{prev_tag} -> {true_tag} -> {pred_tag}: {count} errors")
         print(f"  Transition probability from {prev_tag} to {true_tag}: {true_to_true_prob}")
         print(f"  Transition probability from {prev_tag} to {pred_tag}: {prev_to_pred_prob}")
-
-
-if __name__ == "__main__":
-    pi, A, b = train("en_gum-ud-train.conllu")
-    tags = list(b.keys())
-    accuracy = evaluate("en_gum-ud-test.conllu", tags, pi, A, b)
-    error_analysis("en_gum-ud-test.conllu", "en_gum-ud-train.conllu")
-    print(accuracy)
-
-
-    pi, A, b = train("es_gsd-ud-train.conllu")
-    tags = list(b.keys())
-    accuracy = evaluate("es_gsd-ud-test.conllu", tags, pi, A, b)
-    error_analysis("es_gsd-ud-test.conllu", "es_gsd-ud-train.conllu")
-    print(accuracy)
- 
+        print(f"  Transition * Emission probability from {prev_tag} to {true_tag}: {transition_times_emission_prob}")
+        print(f"  Transition Prob * Emission probability from {prev_tag} to {pred_tag}: {transition_prob_emission_prob}")
