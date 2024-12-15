@@ -2,54 +2,58 @@ import numpy as np
 import conllu
 
 
+import numpy as np
+from collections import defaultdict
+
 def viterbi(obs, states, pi, A, b):
-    N = len(states)
-    T = len(obs)
-    # Initialize a path probability matrix
+    N = len(states)  # Number of states
+    T = len(obs)     # Length of observation sequence
+
+    # Initialize the path probability matrix and backpointer
     viterbi = np.zeros((N, T))
     backpointer = np.zeros((N, T), dtype=int)
 
-    # Initialization step
+    # Initialization step: t = 0
     for q in range(N):
-        if obs[0] in b[states[q]].keys():
-            viterbi[q, 0] = pi[states[q]] * b[states[q]][obs[0]]
+        # Handle cases where observation or state probabilities may be missing
+        viterbi[q, 0] = pi.get(states[q], 0) * b.get(states[q], {}).get(obs[0], 0)
 
-    # Recursion step
+    # Recursion step: t = 1 to T-1
     for t in range(1, T):
         for q in range(N):
-            '''maxProb, bestState = max(
-                (viterbi[q_prime, t - 1] * A[states[q_prime]][states[q]] * b[states[q]][obs[t]], q_prime)
-                for q_prime in range(N) 
-            )'''
-            maxProb = 0
-            bestState = 0
+            max_prob = 0
+            best_state = 0
             for q_prime in range(N):
-                if states[q] in A[states[q_prime]].keys() and obs[t] in b[states[q]].keys():
-                    if viterbi[q_prime, t - 1] * A[states[q_prime]][states[q]] * b[states[q]][obs[t]] > maxProb:
-                        maxProb = viterbi[q_prime, t - 1] * A[states[q_prime]][states[q]] * b[states[q]][obs[t]]
-                        bestState = q_prime
-            viterbi[q, t] = maxProb
-            backpointer[q, t] = bestState
+                # Ensure all probabilities exist, using 0 for missing probabilities
+                transition_prob = A.get(states[q_prime], {}).get(states[q], 0)
+                emission_prob = b.get(states[q], {}).get(obs[t], 0)
+                prob = viterbi[q_prime, t - 1] * transition_prob * emission_prob
 
-    '''bestPathProb, bestLastState = max(
-                (viterbi[q_prime, T - 1] * A[states[q_prime]]['STOP'], q_prime)
-                for q_prime in range(N)
-            )'''
-    bestPathProb = 0
-    bestLastState = 0
-    for q_prime in range(N):
-        if 'STOP' in A[states[q_prime]].keys():
-            if viterbi[q_prime, T - 1] * A[states[q_prime]]['STOP'] > bestPathProb:
-                bestPathProb = viterbi[q_prime, T - 1] * A[states[q_prime]]['STOP']
-                bestLastState = q_prime
+                if prob > max_prob:
+                    max_prob = prob
+                    best_state = q_prime
 
-    bestPath = [bestLastState]
+            viterbi[q, t] = max_prob
+            backpointer[q, t] = best_state
+
+    # Termination step
+    best_path_prob = 0
+    best_last_state = 0
+    for q in range(N):
+        stop_prob = A.get(states[q], {}).get('STOP', 0)
+        prob = viterbi[q, T - 1] * stop_prob
+
+        if prob > best_path_prob:
+            best_path_prob = prob
+            best_last_state = q
+
+    # Reconstruct the best path
+    best_path = [best_last_state]
     for t in range(T - 1, 0, -1):
-        bestPath.append(backpointer[bestPath[-1], t])
-    bestPath.reverse()
+        best_path.append(backpointer[best_path[-1], t])
+    best_path.reverse()
 
-    return bestPathProb, bestPath
-
+    return best_path_prob, best_path
 
 def train(file_name):
     with open(file_name, "r", encoding="utf-8") as f:
@@ -66,14 +70,14 @@ def train(file_name):
         tokens = [token["form"] for token in sentence]  # Get tokens
         pos_tags = [token["upos"] for token in sentence]  # Get POS tags
 
-        first_tag = pos_tags[0]
+        first_tag = pos_tags[0] #Count first tags
         if first_tag in pi:
             pi[first_tag] += 1
         else:
             pi[first_tag] = 1
 
         prev = first_tag
-        for tag in pos_tags[1:]:
+        for tag in pos_tags[1:]: #Count Transitions
             if prev in A:
                 if tag in A[prev]:
                     A[prev][tag] += 1
@@ -83,7 +87,7 @@ def train(file_name):
                 A[prev] = {}
                 A[prev][tag] = 1
             prev = tag
-        if prev in A:
+        if prev in A: #Count Endings
             if 'STOP' in A[prev]:
                 A[prev]['STOP'] += 1
             else:
@@ -92,7 +96,7 @@ def train(file_name):
             A[prev] = {}
             A[prev]['STOP'] = 1
 
-        for i in range(len(tokens)):
+        for i in range(len(tokens)): #Counts for emission matrix
             if pos_tags[i] in b:
                 if tokens[i] in b[pos_tags[i]]:
                     b[pos_tags[i]][tokens[i]] += 1
@@ -103,7 +107,7 @@ def train(file_name):
                 b[pos_tags[i]][tokens[i]] = 1
 
 
-    num = len(parsed_data)
+    num = len(parsed_data) #Transform to probabilities
     for i in pi:
         pi[i] = pi[i] / num
 
@@ -130,35 +134,97 @@ def train(file_name):
 
     return pi, A, b
 
-
 def evaluate(file_name, tags, pi, A, b):
     with open(file_name, "r", encoding="utf-8") as f:
         data = f.read()
 
     parsed_data = conllu.parse(data)
-    overscore = 0
+    overscore = 0 #This will accumulate the overall score across all sentences
 
     for sentence in parsed_data:
         tokens = [token["form"] for token in sentence]  # Get tokens
         pos_tags = [token["upos"] for token in sentence]  # Get POS tags
 
-        _, path = viterbi(tokens, tags, pi, A, b)
+        _, path = viterbi(tokens, tags, pi, A, b) #Run the Viterbi algorithm to predict the most likely POS tag sequence
         new_tags = []
         for i in path:
             new_tags.append(tags[i])
 
-        score = 0
+        score = 0 #Score to track how many tags match the true labels
         assert len(pos_tags) == len(new_tags)
+
+        #Compare the predicted tags with the true tags
         for i in range(len(pos_tags)):
             if pos_tags[i] == new_tags[i]:
                 score += 1
         overscore += score / len(pos_tags)
     return overscore / len(parsed_data)
 
+def error_analysis(file_name, train_file_name):
+    # Train the HMM model on the training file and get the probability matrices
+    pi, A, b = train(train_file_name)
+
+    tags = list(b.keys())
+
+    with open(file_name, "r", encoding="utf-8") as f:
+        data = f.read()
+
+    parsed_data = conllu.parse(data)
+
+    # Dictionary to store substitution errors and previous tags
+    substitution_errors = {}
+
+    # Process each sentence in the test data
+    for sentence in parsed_data:
+        tokens = [token["form"] for token in sentence]  # Get tokens
+        pos_tags = [token["upos"] for token in sentence]  # Get true POS tags
+
+        # Run Viterbi to predict tags
+        _, path = viterbi(tokens, tags, pi, A, b)
+        predicted_tags = [tags[i] for i in path]
+
+        # Track errors
+        for i, (true_tag, pred_tag) in enumerate(zip(pos_tags, predicted_tags)):
+            if true_tag != pred_tag:
+                # Track substitution errors along with the previous tag
+                if i > 0:
+                    previous_tag = pos_tags[i - 1]
+                else:
+                    previous_tag = '*'  # Start-of-sentence marker
+
+                # Store the substitution error with the previous tag
+                if (previous_tag, true_tag, pred_tag) not in substitution_errors:
+                    substitution_errors[(previous_tag, true_tag, pred_tag)] = 1
+                else:
+                    substitution_errors[(previous_tag, true_tag, pred_tag)] += 1
+
+    # Sort substitution errors by the number of occurrences
+    sorted_substitution_errors = sorted(substitution_errors.items(), key=lambda x: x[1], reverse=True)
+
+    # Print the 5 most common substitution errors and their probabilities
+    print("\nTop 5 Most Common Substitution Errors (Prev Tag -> True Tag -> Predicted Tag):")
+    for (prev_tag, true_tag, pred_tag), count in sorted_substitution_errors[:5]:
+        # Transition probabilities
+        true_to_true_prob = A.get(prev_tag, {}).get(true_tag, 0)
+        prev_to_pred_prob = A.get(prev_tag, {}).get(pred_tag, 0)
+
+        # Print the substitution error along with the transition and emission probabilities
+        print(f"{prev_tag} -> {true_tag} -> {pred_tag}: {count} errors")
+        print(f"  Transition probability from {prev_tag} to {true_tag}: {true_to_true_prob}")
+        print(f"  Transition probability from {prev_tag} to {pred_tag}: {prev_to_pred_prob}")
+
 
 if __name__ == "__main__":
     pi, A, b = train("en_gum-ud-train.conllu")
     tags = list(b.keys())
     accuracy = evaluate("en_gum-ud-test.conllu", tags, pi, A, b)
-
+    error_analysis("en_gum-ud-test.conllu", "en_gum-ud-train.conllu")
     print(accuracy)
+
+
+    pi, A, b = train("es_gsd-ud-train.conllu")
+    tags = list(b.keys())
+    accuracy = evaluate("es_gsd-ud-test.conllu", tags, pi, A, b)
+    error_analysis("es_gsd-ud-test.conllu", "es_gsd-ud-train.conllu")
+    print(accuracy)
+ 
