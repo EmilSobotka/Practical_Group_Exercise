@@ -230,3 +230,25 @@ def error_analysis(file_name, train_file_name):
         print(f"Emission probability weight: {emission_prob}")
         print(f"True Transition Prob * Emission probability from {prev_tag} to {true_tag}: {transition_true_times_emission_prob}")
         print(f"Pred Transition Prob * Emission probability from {prev_tag} to {pred_tag}: {transition_pred_times_emission_prob}")
+
+def apply_hmm_to_new_dataset(new_dataset_file, train_file_name):
+     # Train the HMM model using the original training data
+    pi, A, b = train(train_file_name)
+    tags = list(b.keys())
+
+    # Load and parse the new dataset
+    with open(new_dataset_file, "r", encoding="utf-8") as f:
+        new_data = f.read()
+    parsed_new_data = conllu.parse(new_data)
+
+    # Process each sentence in the new dataset
+    for sentence in parsed_new_data:
+        tokens = [token["form"] for token in sentence]  # Get tokens
+
+        # Apply the Viterbi algorithm to predict POS tags
+        _, predicted_path = viterbi(tokens, tags, pi, A, b)
+        predicted_tags = [tags[i] for i in predicted_path]
+
+        # Add predicted POS tags to the sentence
+        for i, token in enumerate(sentence):
+            token["predicted_upos"] = predicted_tags[i]
