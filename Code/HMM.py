@@ -220,12 +220,13 @@ def error_analysis(file_name, train_file_name):
             emission_prob = 0  # Default emission probability in case of error
 
         # Calculate transition probability multiplied by emission probability
-        transition_times_emission_prob = true_to_true_prob * emission_prob
-        transition_prob_emission_prob = prev_to_pred_prob * emission_prob
+        transition_true_times_emission_prob = true_to_true_prob * emission_prob
+        transition_pred_times_emission_prob = prev_to_pred_prob * emission_prob
          
         # Print substitution error with the original and multiplied transition probabilities
-        print(f"{prev_tag} -> {true_tag} -> {pred_tag}: {count} errors")
-        print(f"  Transition probability from {prev_tag} to {true_tag}: {true_to_true_prob}")
-        print(f"  Transition probability from {prev_tag} to {pred_tag}: {prev_to_pred_prob}")
-        print(f"  Transition * Emission probability from {prev_tag} to {true_tag}: {transition_times_emission_prob}")
-        print(f"  Transition Prob * Emission probability from {prev_tag} to {pred_tag}: {transition_prob_emission_prob}")
+        print(f" {prev_tag} -> {true_tag} -> {pred_tag}: {count} errors")
+        print(f"Transition probability from {prev_tag} to {true_tag}: {true_to_true_prob}")
+        print(f"Transition probability from {prev_tag} to {pred_tag}: {prev_to_pred_prob}")
+        print(f"Emission probability weight: {emission_prob}")
+        print(f"True Transition Prob * Emission probability from {prev_tag} to {true_tag}: {transition_true_times_emission_prob}")
+        print(f"Pred Transition Prob * Emission probability from {prev_tag} to {pred_tag}: {transition_pred_times_emission_prob}")
