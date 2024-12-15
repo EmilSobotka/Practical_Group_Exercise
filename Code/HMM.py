@@ -178,7 +178,6 @@ def error_analysis(file_name, train_file_name):
     for sentence in parsed_data:
         tokens = [token["form"] for token in sentence]  # Get tokens
         pos_tags = [token["upos"] for token in sentence]  # Get true POS tags
-
         # Run Viterbi to predict tags
         _, path = viterbi(tokens, tags, pi, A, b)
         predicted_tags = [tags[i] for i in path]
@@ -201,7 +200,6 @@ def error_analysis(file_name, train_file_name):
     # Sort substitution errors by the number of occurrences
     sorted_substitution_errors = sorted(substitution_errors.items(), key=lambda x: x[1], reverse=True)
 
-    # Print the 5 most common substitution errors and their probabilities
     print("\nTop 5 Most Common Substitution Errors (Prev Tag -> True Tag -> Predicted Tag):")
     for (prev_tag, true_tag, pred_tag), count in sorted_substitution_errors[:5]:
         # Transition probabilities
@@ -213,15 +211,26 @@ def error_analysis(file_name, train_file_name):
         matching_indices = [i for i, t in enumerate(pos_tags) if t == true_tag]
         if matching_indices:
             token_index = matching_indices[0]
-            emission_prob = b.get(true_tag, {}).get(tokens[token_index], 0)
+            emission_prob_true = b.get(true_tag, {}).get(tokens[token_index], 0)
         else:
             # Handle the case where no matching token is found
             token_index = None
-            emission_prob = 0  # Default emission probability in case of error
+            emission_prob_true = 0  # Default emission probability in case of error
+
+        # Obtain the current token to calculate the emission probability
+        # Ensure that a match exists for the true_tag before accessing token_index
+        matching_indices = [i for i, t in enumerate(pos_tags) if t == true_tag]
+        if matching_indices:
+            token_index = matching_indices[0]
+            emission_prob_pred = b.get(pred_tag, {}).get(tokens[token_index], 0)
+        else:
+            # Handle the case where no matching token is found
+            token_index = None
+            emission_prob_pred = 0  # Default emission probability in case of error
 
         # Calculate transition probability multiplied by emission probability
-        transition_true_times_emission_prob = true_to_true_prob * emission_prob
-        transition_pred_times_emission_prob = prev_to_pred_prob * emission_prob
+        transition_true_times_emission_prob_true = true_to_true_prob * emission_prob_true
+        transition_pred_times_emission_prob_true = prev_to_pred_prob * emission_prob_pred
          
         # Print substitution error with the original and multiplied transition probabilities
         print(f" {prev_tag} -> {true_tag} -> {pred_tag}: {count} errors")
