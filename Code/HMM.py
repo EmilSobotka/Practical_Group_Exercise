@@ -1,7 +1,4 @@
-import numpy as np
 import conllu
-
-
 import numpy as np
 from collections import defaultdict
 
@@ -28,11 +25,9 @@ def viterbi(obs, states, pi, A, b):
                 transition_prob = A.get(states[q_prime], {}).get(states[q], 0)
                 emission_prob = b.get(states[q], {}).get(obs[t], 0)
                 prob = viterbi[q_prime, t - 1] * transition_prob * emission_prob
-
                 if prob > max_prob:
                     max_prob = prob
                     best_state = q_prime
-
             viterbi[q, t] = max_prob
             backpointer[q, t] = best_state
 
@@ -52,8 +47,9 @@ def viterbi(obs, states, pi, A, b):
     for t in range(T - 1, 0, -1):
         best_path.append(backpointer[best_path[-1], t])
     best_path.reverse()
-
+    
     return best_path_prob, best_path
+
 
 def train(file_name):
     with open(file_name, "r", encoding="utf-8") as f:
@@ -64,6 +60,7 @@ def train(file_name):
     pi = {}
     A = {}
     b = {}
+    vocab=set()
 
     # Extract tokens and POS tags
     for sentence in parsed_data:
@@ -105,7 +102,8 @@ def train(file_name):
             else:
                 b[pos_tags[i]] = {}
                 b[pos_tags[i]][tokens[i]] = 1
-
+            if tokens[i] not in vocab:
+                vocab.add(tokens[i])
 
     num = len(parsed_data) #Transform to probabilities
     for i in pi:
@@ -117,6 +115,7 @@ def train(file_name):
             A[j][i] = A[j][i] / num
 
     for j in b:
+        b[j]['UNK'] = 1
         num = sum(b[j].values())
         for i in b[j]:
             b[j][i] = b[j][i] / num
@@ -132,9 +131,10 @@ def train(file_name):
             except UnicodeEncodeError:
                 print(f"Problematic key: {key}")'''
 
-    return pi, A, b
+    return pi, A, b, vocab
 
-def evaluate(file_name, tags, pi, A, b):
+
+def evaluate(file_name, tags, pi, A, b, vocab):
     with open(file_name, "r", encoding="utf-8") as f:
         data = f.read()
 
@@ -145,7 +145,13 @@ def evaluate(file_name, tags, pi, A, b):
         tokens = [token["form"] for token in sentence]  # Get tokens
         pos_tags = [token["upos"] for token in sentence]  # Get POS tags
 
-        _, path = viterbi(tokens, tags, pi, A, b) #Run the Viterbi algorithm to predict the most likely POS tag sequence
+        adjust_tokens = []
+        for i in tokens:
+            if i in vocab:
+                adjust_tokens.append(i)
+            else:
+                adjust_tokens.append('UNK')
+        _, path = viterbi(adjust_tokens, tags, pi, A, b) #Run the Viterbi algorithm to predict the most likely POS tag sequence
         new_tags = []
         for i in path:
             new_tags.append(tags[i])
@@ -158,11 +164,13 @@ def evaluate(file_name, tags, pi, A, b):
             if pos_tags[i] == new_tags[i]:
                 score += 1
         overscore += score / len(pos_tags)
+        
     return overscore / len(parsed_data)
+
 
 def error_analysis(file_name, train_file_name):
     # Train the HMM model on the training file and get the probability matrices
-    pi, A, b = train(train_file_name)
+    pi, A, b, vocab = train(train_file_name)
 
     tags = list(b.keys())
 
@@ -178,53 +186,56 @@ def error_analysis(file_name, train_file_name):
     for sentence in parsed_data:
         tokens = [token["form"] for token in sentence]  # Get tokens
         pos_tags = [token["upos"] for token in sentence]  # Get true POS tags
-
         # Run Viterbi to predict tags
-        _, path = viterbi(tokens, tags, pi, A, b)
+        adjust_tokens = []
+        for i in tokens:
+            if i in vocab:
+                adjust_tokens.append(i)
+            else:
+                adjust_tokens.append('UNK')
+        _, path = viterbi(adjust_tokens, tags, pi, A, b)
         predicted_tags = [tags[i] for i in path]
 
         # Track errors
-        for i, (true_tag, pred_tag) in enumerate(zip(pos_tags, predicted_tags)):
+        for i, (true_tag, pred_tag, token) in enumerate(zip(pos_tags, predicted_tags, tokens)):
             if true_tag != pred_tag:
                 # Track substitution errors along with the previous tag
                 if i > 0:
-                    previous_tag = pos_tags[i - 1]
+                    previous_tag = predicted_tags[i - 1]
                 else:
                     previous_tag = '*'  # Start-of-sentence marker
 
                 # Store the substitution error with the previous tag
-                if (previous_tag, true_tag, pred_tag) not in substitution_errors:
-                    substitution_errors[(previous_tag, true_tag, pred_tag)] = 1
+                if (previous_tag, true_tag, pred_tag, token) not in substitution_errors:
+                    substitution_errors[(previous_tag, true_tag, pred_tag, token)] = 1
                 else:
-                    substitution_errors[(previous_tag, true_tag, pred_tag)] += 1
+                    substitution_errors[(previous_tag, true_tag, pred_tag, token)] += 1
 
     # Sort substitution errors by the number of occurrences
     sorted_substitution_errors = sorted(substitution_errors.items(), key=lambda x: x[1], reverse=True)
 
-    # Print the 5 most common substitution errors and their probabilities
     print("\nTop 5 Most Common Substitution Errors (Prev Tag -> True Tag -> Predicted Tag):")
-    for (prev_tag, true_tag, pred_tag), count in sorted_substitution_errors[:5]:
+    for (prev_tag, true_tag, pred_tag, token), count in sorted_substitution_errors[:5]:
         # Transition probabilities
-        true_to_true_prob = A.get(prev_tag, {}).get(true_tag, 0)
-        prev_to_pred_prob = A.get(prev_tag, {}).get(pred_tag, 0)
+        if prev_tag == '*':
+            true_to_true_prob = pi.get(true_tag, 0)
+            prev_to_pred_prob = pi.get(pred_tag, 0)
+        else:
+            true_to_true_prob = A.get(prev_tag, {}).get(true_tag, 0)
+            prev_to_pred_prob = A.get(prev_tag, {}).get(pred_tag, 0)
 
-        # Print the substitution error along with the transition and emission probabilities
+        emission_prob_pred = b.get(pred_tag, {}).get(token, 0)
+        emission_prob_true = b.get(true_tag, {}).get(token, 0)
+
+        # Calculate transition probability multiplied by emission probability
+        transition_true_times_emission_prob = true_to_true_prob * emission_prob_true
+        transition_prob_times_emission_prob = prev_to_pred_prob * emission_prob_pred
+
+        # Print substitution error with the original and multiplied transition probabilities
         print(f"{prev_tag} -> {true_tag} -> {pred_tag}: {count} errors")
         print(f"  Transition probability from {prev_tag} to {true_tag}: {true_to_true_prob}")
         print(f"  Transition probability from {prev_tag} to {pred_tag}: {prev_to_pred_prob}")
-
-
-if __name__ == "__main__":
-    pi, A, b = train("en_gum-ud-train.conllu")
-    tags = list(b.keys())
-    accuracy = evaluate("en_gum-ud-test.conllu", tags, pi, A, b)
-    error_analysis("en_gum-ud-test.conllu", "en_gum-ud-train.conllu")
-    print(accuracy)
-
-
-    pi, A, b = train("es_gsd-ud-train.conllu")
-    tags = list(b.keys())
-    accuracy = evaluate("es_gsd-ud-test.conllu", tags, pi, A, b)
-    error_analysis("es_gsd-ud-test.conllu", "es_gsd-ud-train.conllu")
-    print(accuracy)
- 
+        print(f"  Weight of emission probability of true PoS: {emission_prob_true}")
+        print(f"  True transition probability * Emission probability from {prev_tag} to {true_tag} while {token}: {transition_true_times_emission_prob}")
+        print(f"  Weight of emission probability of predicted PoS: {emission_prob_pred}")
+        print(f"  Predicted transition probability * Emission probability from {prev_tag} to {pred_tag} while {token}: {transition_prob_times_emission_prob}")
